@@ -1,6 +1,7 @@
 import chess
 import importlib
 import torch
+import random
 
 converter = importlib.import_module("Game-Processor")
 architecture = importlib.import_module("Model-Trainer")
@@ -15,7 +16,7 @@ model.load_state_dict(torch.load("DeepRook.pt", map_location=device, weights_onl
 
 model.eval()
 
-def Get_Raw(board):
+def Get_Raw(board, temperature=0):
     if board.is_game_over():
         result = board.outcome()
         if result.winner is None:
@@ -29,10 +30,18 @@ def Get_Raw(board):
     value = raw[0]
     policy = raw[1].squeeze(0)
 
-    move_grades = {}
+    if temperature == 0:
+        move_grades = {}
+        for move in board.legal_moves:
+            move_code = converter.Convert_Move(board.turn,move)
+            move_grades[move] = policy[move_code].item()
+        return (value.item(),max(move_grades, key=move_grades.get))
 
-    for move in board.legal_moves:
-        move_code = converter.Convert_Move(board.turn,move)
-        move_grades[move] = policy[move_code].item()
-
-    return (value.item(),max(move_grades, key=move_grades.get))
+    else:
+        probabilities = torch.softmax(policy / temperature, dim=0)
+        move_grades = {}
+        for move in board.legal_moves:
+            move_code = converter.Convert_Move(board.turn,move)
+            move_grades[move] = probabilities[move_code].item()
+        best_move = random.choices(list(move_grades.keys()), weights=list(move_grades.values()))[0]
+        return (value.item(),best_move)

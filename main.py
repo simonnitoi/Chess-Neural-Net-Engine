@@ -12,8 +12,8 @@ while True:
     if playerSide == "w" or playerSide == "b":
         break
 
-if playerSide == "b":
-    calc = engine.Get_Raw(board)
+if (playerSide == "b") and (board.turn == chess.WHITE):
+    calc = engine.Get_Raw(board,temperature=1.0)
     print(f"\nEval -> {calc[0]}")
     board.push(calc[1])
 
@@ -27,7 +27,7 @@ while not board.is_game_over():
         except:
             playerMove = input("Error! Your Move -> ")
     if not board.is_game_over():
-        calc = engine.Get_Raw(board)
+        calc = engine.Get_Raw(board,temperature=1.0)
 
         if board.turn == chess.BLACK:
             print(f"\nEval -> {calc[0]*-1}")
@@ -40,7 +40,7 @@ while not board.is_game_over():
 
 # << IT PLAYS ITSELF >>
 # while not board.is_game_over():
-#     board.push(engine.Get_Raw(board)[1])
+#     board.push(engine.Get_Raw(board,temperature=1.0)[1])
 
 
 
