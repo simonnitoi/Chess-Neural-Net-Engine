@@ -4,17 +4,18 @@ import torch
 import io
 import zstandard as zstd
 
-# SETTINGS
-database_file_name = "lichess_db_standard_rated_2026-07.pgn.zst"
-games_target = 1000
-event_type = "rated rapid game"
-rating_range = [1900,9999]
-spawn_file_name = "Processed-Games.pt"
+if __name__ == "__main__":
+    # SETTINGS
+    database_file_name = "lichess_db_standard_rated_2026-07.pgn.zst"
+    games_target = 10000
+    event_type = "rated rapid game"
+    rating_range = [2000,9999]
+    spawn_file_name = "Processed-Games.pt"
 
-signal = input(f"Database -> {database_file_name}\nGames -> {games_target}\nEvent -> {event_type}\nRating -> ({rating_range[0]},{rating_range[1]})\nSpawn -> {spawn_file_name}\nEnter \"START\" to prep data -> ")
+    signal = input(f"Database -> {database_file_name}\nGames -> {games_target}\nEvent -> {event_type}\nRating -> ({rating_range[0]},{rating_range[1]})\nSpawn -> {spawn_file_name}\nEnter \"START\" to prep data -> ")
 
-if signal != "START":
-    exit()
+    if signal != "START":
+        exit()
 
 def Convert_Position(board):
     tensor = torch.zeros((17,8,8), dtype=torch.uint8)
@@ -161,25 +162,34 @@ def Convert_Outcome(result,turn):
     if result == "0-1":
         return -mod
 
-tensor_list = []
-outcome_list = []
+def Convert_Move(turn,move):
+    fro = move.from_square
+    to = move.to_square
+    if turn == chess.WHITE: # so promotion is always on squares 0-7
+        fro = 56 - fro + 2*(fro % 8) # (to match the position flipping & not confuse the net) where n is the square number: 56 - n + 2*(n % 8) = vertically flipped square number
+        to = 56 - to + 2*(to % 8)
+    
+    if move.promotion is None:
+        return fro*64+to
 
-with open(database_file_name,"rb") as compressed_file:
-    dctx = zstd.ZstdDecompressor()
-    with dctx.stream_reader(compressed_file) as stream:
-        text_stream = io.TextIOWrapper(stream, encoding="utf-8")
+    to +=1
+    fro +=1
+    if move.promotion == chess.QUEEN:
+        return 4096+to*fro
+    if move.promotion == chess.ROOK:
+        return 4096+128+to*fro # 16x8=128 is the highest possible to*fro value (when promoting). This way, no overlap with other promotions
+    if move.promotion == chess.BISHOP:
+        return 4096+256+to*fro
+    return 4096+384+to*fro
 
-        # START CONVERTING
-        games_processed = 0
-        games_scanned = 0
-        print("Beginning program...")
-        while games_processed < games_target:
-            game = chess.pgn.read_game(text_stream)
-            if game is None:
-                break
+if __name__ == "__main__":
 
-            w_elo = game.headers.get("WhiteElo")
-            b_elo = game.headers.get("BlackElo")
+    class Filter(chess.pgn.GameBuilder):
+        def end_headers(self):
+            header = self.game.headers
+
+            w_elo = header.get("WhiteElo")
+            b_elo = header.get("BlackElo")
             if w_elo == "?" or b_elo == "?":
                 w_elo = -1
                 b_elo = -1
@@ -187,22 +197,53 @@ with open(database_file_name,"rb") as compressed_file:
                 w_elo = int(w_elo)
                 b_elo = int(b_elo)
 
-            if (game.headers.get("Result") != "*") and (rating_range[0] < w_elo < rating_range[1]) and (rating_range[0] < b_elo < rating_range[1]) and (game.headers.get("Event").lower() == event_type.lower()):
+            if not ((header.get("Result") != "*") and (rating_range[0] < w_elo < rating_range[1]) and (rating_range[0] < b_elo < rating_range[1]) and (header.get("Event").lower() == event_type.lower())):
+                return chess.pgn.SKIP
+
+    tensor_list = []
+    outcome_list = []
+    move_list = []
+
+    with open(database_file_name,"rb") as compressed_file:
+        dctx = zstd.ZstdDecompressor()
+        with dctx.stream_reader(compressed_file) as stream:
+            text_stream = io.TextIOWrapper(stream, encoding="utf-8")
+
+            # START CONVERTING
+            games_processed = 0
+            games_scanned = 0
+            print("Beginning program...")
+            while games_processed < games_target:
+
+                game = chess.pgn.read_game(text_stream, Visitor=Filter)
+                
+                if game is None:
+                    break
+
+                games_scanned += 1
+                if games_scanned % 10000 == 0:
+                    print(f"Scanned -> {games_scanned} | Processed -> {games_processed}/{games_target}")
+
+                if game.next() is None:
+                    continue
+                
                 board = chess.Board()
                 for move in game.mainline_moves():
                     tensor = Convert_Position(board)
                     outcome = Convert_Outcome(game.headers.get("Result"),board.turn)
+                    move_value = Convert_Move(board.turn,move)
+
                     tensor_list.append(tensor)
                     outcome_list.append(outcome)
+                    move_list.append(move_value)
+
                     board.push(move)
                 games_processed += 1
-            games_scanned += 1
-            if games_scanned % 1000 == 0:
-                print(f"Scanned -> {games_scanned} | Processed -> {games_processed}/{games_target}")
 
-x = torch.stack(tensor_list)
-y = torch.tensor(outcome_list,dtype=torch.float32)
+    x = torch.stack(tensor_list)
+    y = torch.tensor(outcome_list,dtype=torch.float32)
+    z = torch.tensor(move_list,dtype=torch.long)
 
-torch.save({"tensors":x, "outcomes":y},spawn_file_name)
+    torch.save({"tensors":x, "outcomes":y, "moves":z},spawn_file_name)
 
-print(f"\n>>> PROGRAM FINISHED <<<\nSCANNED -> {games_scanned}\nPROCESSED -> {games_processed}/{games_target}")
+    print(f"\n>>> PROGRAM FINISHED <<<\nSCANNED -> {games_scanned}\nPROCESSED -> {games_processed}/{games_target}")
