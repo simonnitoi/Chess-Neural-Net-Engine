@@ -28,7 +28,7 @@ A simple PyTorch-based chess evaluator.
     - The model weights are adjusted by optimizer `Adam`.
 4. Once the specified number of epochs are complete, the model is saved to a .pt file.
 ### Part 3: Basic Application (`Search-Algorithm.py` & `main.py`)
-1. It is applied for play in `main.py` by calling the function `Get_Raw()` from `Search-Algorithm.py`, which outputs the favoured move and evaluation, according to the policy and value head outputs.
+1. It is a applied into PUCT MCTS in `Search-Algorithm.py`, following the search formula `t/n + 2*grade* ( math.sqrt( nP+1 ) / (n + 1) )`, where t = total evaluation score, n = number of iterations, nP = number of parent node iterations, and grade is the model's assigned probability for the node (move) (0-1). It is called on using the function `Get_MCTS()` and applied in `main.py`.
 
 ## Steps to Replicate & Play the Model
 1. Clone the repository.
