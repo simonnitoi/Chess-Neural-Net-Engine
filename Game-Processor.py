@@ -6,13 +6,27 @@ import zstandard as zstd
 
 if __name__ == "__main__":
     # SETTINGS
-    database_file_name = "lichess_db_standard_rated_2026-07.pgn.zst"
-    games_target = 10000
-    event_type = "rated rapid game"
-    rating_range = [2000,9999]
-    spawn_file_name = "Processed-Games.pt"
+    database_file_name = "lichess_elite_2021-10.pgn"
+    print(f"Database -> {database_file_name}")
 
-    signal = input(f"Database -> {database_file_name}\nGames -> {games_target}\nEvent -> {event_type}\nRating -> ({rating_range[0]},{rating_range[1]})\nSpawn -> {spawn_file_name}\nEnter \"START\" to prep data -> ")
+    games_per_turn = 100000
+    turns = 5
+    print(f"Games -> {turns} x {games_per_turn}")
+
+    event_type = "rated rapid game"
+    apply_event = False # Set this to True if you want to use a specific match type
+    if apply_event:
+        print(f"Event -> {event_type}")
+
+    rating_range = (2000,9999)
+    apply_rating = False # Set this to True if you want to use a rating range
+    if apply_rating:
+        print(f"Rating -> ({rating_range[0]},{rating_range[1]})")
+
+    spawn_file_naming = "Processed-Games"
+    print(f"Naming -> {spawn_file_naming}")
+
+    signal = input("Enter \"START\" to prep data -> ")
 
     if signal != "START":
         exit()
@@ -188,62 +202,142 @@ if __name__ == "__main__":
         def end_headers(self):
             header = self.game.headers
 
-            w_elo = header.get("WhiteElo")
-            b_elo = header.get("BlackElo")
-            if w_elo == "?" or b_elo == "?":
-                w_elo = -1
-                b_elo = -1
-            else:
-                w_elo = int(w_elo)
-                b_elo = int(b_elo)
+            if apply_rating:
+                w_elo = header.get("WhiteElo")
+                b_elo = header.get("BlackElo")
+                if w_elo == "?" or b_elo == "?":
+                    w_elo = -1
+                    b_elo = -1
+                else:
+                    w_elo = int(w_elo)
+                    b_elo = int(b_elo)
 
-            if not ((header.get("Result") != "*") and (rating_range[0] < w_elo < rating_range[1]) and (rating_range[0] < b_elo < rating_range[1]) and (header.get("Event").lower() == event_type.lower())):
+                if not ((rating_range[0] < w_elo < rating_range[1]) and (rating_range[0] < b_elo < rating_range[1])):
+                    return chess.pgn.SKIP
+
+            if apply_event:
+                if not (header.get("Event").lower() == event_type.lower()):
+                    return chess.pgn.SKIP
+
+            if not ( (header.get("Result") != "*") and (header.get("Termination").lower() != "time forfeit") ):
                 return chess.pgn.SKIP
 
-    tensor_list = []
-    outcome_list = []
-    move_list = []
+    turn = 0
+    dead = False
 
-    with open(database_file_name,"rb") as compressed_file:
-        dctx = zstd.ZstdDecompressor()
-        with dctx.stream_reader(compressed_file) as stream:
-            text_stream = io.TextIOWrapper(stream, encoding="utf-8")
+    if database_file_name.endswith(".pgn.zst"):
+        print("Beginning program...")
+        with open(database_file_name,"rb") as compressed_file:
+            dctx = zstd.ZstdDecompressor()
+            with dctx.stream_reader(compressed_file) as stream:
+                text_stream = io.TextIOWrapper(stream, encoding="utf-8")
+                while turn < turns and dead is False:
+                    tensor_list = []
+                    outcome_list = []
+                    move_list = []
 
-            # START CONVERTING
-            games_processed = 0
-            games_scanned = 0
-            print("Beginning program...")
-            while games_processed < games_target:
+                    games_processed = 0
+                    games_scanned = 0
+                    while games_processed < games_per_turn:
 
-                game = chess.pgn.read_game(text_stream, Visitor=Filter)
+                        game = chess.pgn.read_game(text_stream, Visitor=Filter)
+                                
+                        if game is None:
+                            dead = True
+                            break
+
+                        games_scanned += 1
+                        if games_scanned % 10000 == 0:
+                            print(f"Scanned -> {games_scanned} | Processed -> {games_processed}/{games_per_turn}")
+
+                        if game.next() is None:
+                            continue
+                                
+                        board = chess.Board()
+                        for move in game.mainline_moves():
+                            tensor = Convert_Position(board)
+                            outcome = Convert_Outcome(game.headers.get("Result"),board.turn)
+                            move_value = Convert_Move(board.turn,move)
+
+                            tensor_list.append(tensor)
+                            outcome_list.append(outcome)
+                            move_list.append(move_value)
+
+                            board.push(move)
+                        games_processed += 1
+
+                    if not tensor_list:
+                        break
+                    turn += 1
                 
-                if game is None:
+                    x = torch.stack(tensor_list)
+                    y = torch.tensor(outcome_list,dtype=torch.float32)
+                    z = torch.tensor(move_list,dtype=torch.long)
+                
+                    save_name = f"{spawn_file_naming}-{turn}.pt"
+                
+                    torch.save({"tensors":x, "outcomes":y, "moves":z},save_name)
+                    del x,y,z,tensor_list,outcome_list,move_list
+                
+                    print(f"\n>>> FILE SAVED <<<\nNAME -> {save_name}\nTURN -> {turn} of {turns}\nSCANNED -> {games_scanned}\nPROCESSED -> {games_processed}/{games_per_turn}")
+
+    elif database_file_name.endswith(".pgn"):
+        print("Beginning program...")
+        with open(database_file_name) as games_file:
+            while turn < turns and dead is False:
+                tensor_list = []
+                outcome_list = []
+                move_list = []
+
+                games_processed = 0
+                games_scanned = 0
+
+                while games_processed < games_per_turn:
+                    game = chess.pgn.read_game(games_file, Visitor=Filter)
+
+                    if game is None:
+                        dead = True
+                        break
+
+                    games_scanned += 1
+                    if games_scanned % 10000 == 0:
+                        print(f"Scanned -> {games_scanned} | Processed -> {games_processed}/{games_per_turn}")
+
+                    if game.next() is None:
+                        continue
+
+                    board = chess.Board()
+                    for move in game.mainline_moves():
+                        tensor = Convert_Position(board)
+                        outcome = Convert_Outcome(game.headers.get("Result"),board.turn)
+                        move_value = Convert_Move(board.turn,move)
+                    
+                        tensor_list.append(tensor)
+                        outcome_list.append(outcome)
+                        move_list.append(move_value)
+                    
+                        board.push(move)
+                    games_processed += 1
+
+                if not tensor_list:
                     break
+                turn += 1
 
-                games_scanned += 1
-                if games_scanned % 10000 == 0:
-                    print(f"Scanned -> {games_scanned} | Processed -> {games_processed}/{games_target}")
+                x = torch.stack(tensor_list)
+                y = torch.tensor(outcome_list,dtype=torch.float32)
+                z = torch.tensor(move_list,dtype=torch.long)
+                                
+                save_name = f"{spawn_file_naming}-{turn}.pt"
+                                
+                torch.save({"tensors":x, "outcomes":y, "moves":z},save_name)
+                del x,y,z,tensor_list,outcome_list,move_list
+                                
+                print(f"\n>>> FILE SAVED <<<\nNAME -> {save_name}\nTURN -> {turn} of {turns}\nSCANNED -> {games_scanned}\nPROCESSED -> {games_processed}/{games_per_turn}")
 
-                if game.next() is None:
-                    continue
-                
-                board = chess.Board()
-                for move in game.mainline_moves():
-                    tensor = Convert_Position(board)
-                    outcome = Convert_Outcome(game.headers.get("Result"),board.turn)
-                    move_value = Convert_Move(board.turn,move)
+    else:
+        print("ERROR: Database file must end in .pgn or .pgn.zst.")
+        exit()
 
-                    tensor_list.append(tensor)
-                    outcome_list.append(outcome)
-                    move_list.append(move_value)
+        turn += 1
 
-                    board.push(move)
-                games_processed += 1
-
-    x = torch.stack(tensor_list)
-    y = torch.tensor(outcome_list,dtype=torch.float32)
-    z = torch.tensor(move_list,dtype=torch.long)
-
-    torch.save({"tensors":x, "outcomes":y, "moves":z},spawn_file_name)
-
-    print(f"\n>>> PROGRAM FINISHED <<<\nSCANNED -> {games_scanned}\nPROCESSED -> {games_processed}/{games_target}")
+    print(f"\n>>> PROGRAM FINISHED <<<")
