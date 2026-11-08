@@ -28,7 +28,10 @@ def Get_Raw(board):
             return (-1.5,None,None,None)
 
     with torch.no_grad():
-        with torch.amp.autocast(device.type, dtype=torch.bfloat16):
+        if device.type == "cuda":
+            with torch.amp.autocast(device.type, dtype=torch.bfloat16):
+                raw = model(converter.Convert_Position(board).float().unsqueeze(0).to(device))
+        else:
             raw = model(converter.Convert_Position(board).float().unsqueeze(0).to(device))
 
     value = raw[0].float()

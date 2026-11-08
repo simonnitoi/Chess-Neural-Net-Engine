@@ -155,9 +155,16 @@ if __name__ == "__main__":
 
                 optimizer.zero_grad()
 
-                with torch.amp.autocast(device.type, dtype=torch.bfloat16):
-                    val_out,pol_out = model(boards)
+                if device.type == "cuda":
+                    with torch.amp.autocast(device.type, dtype=torch.bfloat16):
+                        val_out,pol_out = model(boards)
 
+                        val_loss = value_criterion(val_out,outcomes)
+                        pol_loss = policy_criterion(pol_out,moves)
+                        loss = val_loss+pol_loss
+                else:
+                    val_out,pol_out = model(boards)
+                
                     val_loss = value_criterion(val_out,outcomes)
                     pol_loss = policy_criterion(pol_out,moves)
                     loss = val_loss+pol_loss
@@ -185,10 +192,17 @@ if __name__ == "__main__":
                     outcomes = outcomes.to(device).unsqueeze(1)
                     moves = moves.to(device)
 
-                    with torch.amp.autocast(device.type, dtype=torch.bfloat16):
+                    if device.type == "cuda":
+                        with torch.amp.autocast(device.type, dtype=torch.bfloat16):
 
+                            val_out,pol_out = model(boards)
+
+                            val_loss = value_criterion(val_out,outcomes)
+                            pol_loss = policy_criterion(pol_out,moves)
+                            loss = val_loss+pol_loss
+                    else:
                         val_out,pol_out = model(boards)
-
+                        
                         val_loss = value_criterion(val_out,outcomes)
                         pol_loss = policy_criterion(pol_out,moves)
                         loss = val_loss+pol_loss
