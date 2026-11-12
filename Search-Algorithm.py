@@ -7,7 +7,7 @@ import time
 import sys
 
 converter = importlib.import_module("Game-Processor")
-architecture = importlib.import_module("Deep-Learning")
+architecture = importlib.import_module("Model-Architecture")
 
 device = torch.device("cpu")
 if torch.cuda.is_available():

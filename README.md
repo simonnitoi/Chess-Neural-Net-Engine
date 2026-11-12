@@ -15,7 +15,7 @@ A simple PyTorch-based chess evaluator.
 4. The outcome of the game is stored to `outcome_list` as an integer between -1 and 1. 1 represents the player-to-move winning, 0 a draw, and -1 a loss.
 5. The move played from every given position is assigned a number code based on the number label of the square its coming from, and moving to. The labels are always oriented so that the promotion end is on squares 0-7. For non-promotions it is simply `(from) x 64 + (to) = (move code)`. For promotions, it follows `4096 + (to + 1) x (from + 1)` and then `+0` for queens, `+128` for rooks, `+256` for bishops, and `+384` for knights.
 6. Once the requested number of games has been met, the positions and outcomes and moves are saved to a .pt file as uint8 and float32 and long respectively. This may be done in multiple steps/files.
-### Part 2: Deep Learning (`Deep-Learning.py`)
+### Part 2: Neural Network (`Supervised-Training.py` & `Model-Architecture.py`)
 1. The 17 initial tensor input channels are converted into 128 channels by a 2D convolutional layer, and then batch-normalized.
 2. A core architecture is applied, combining residual connection and squeeze-and-excitation into 10 blocks, where each 2D convolutional layer is set to 128 in/out channels.
 3. It is then split into a value and a policy head:
@@ -42,8 +42,8 @@ A simple PyTorch-based chess evaluator.
 3. Download a .pgn or .pgn.zst game archive.
 4. Specify the archive file name, and your desired settings in `Game-Processor.py`, via the variables featured at the top.
 5. Run `Game-Processor.py` (beware of RAM constraints).
-6. Specify the tensor file name, and your desired settings in `Deep-Learning.py`, via the variables featured at the top.
-7. Run `Deep-Learning.py`.
+6. Specify the tensor file names, and your desired settings in `Supervised-Training.py`, via the variables featured at the top.
+7. Run `Supervised-Training.py`.
 8. You have now trained an evaluator!
 9. Specify the name in `Search-Algorithm.py`.
 10. Run `Quick-Test.py` to test it.
